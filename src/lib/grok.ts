@@ -81,10 +81,21 @@ function reasoningEffort() {
   return "low";
 }
 
+export const XAI_KEY_MISSING = "Song generation is not configured. Add XAI_API_KEY on the server.";
+export const XAI_KEY_PREFIX =
+  "XAI_API_KEY doesn't look like an xAI key. Keys from console.x.ai start with xai-.";
+export const XAI_KEY_REJECTED =
+  "The xAI API key was rejected. xAI keys start with xai-. Check XAI_API_KEY on the server.";
+
+export function requireApiKey(explicit?: string): string {
+  const apiKey = (explicit ?? process.env.XAI_API_KEY ?? "").trim();
+  if (!apiKey) throw new GrokError(500, XAI_KEY_MISSING);
+  if (!apiKey.startsWith("xai-")) throw new GrokError(500, XAI_KEY_PREFIX);
+  return apiKey;
+}
+
 function failureMessage(status: number) {
-  if (status === 401 || status === 403) {
-    return "The xAI API key was rejected. Check XAI_API_KEY on the server.";
-  }
+  if (status === 401 || status === 403) return XAI_KEY_REJECTED;
   if (status === 429) return "xAI is rate-limiting this app. Wait a minute and try again.";
   if (status === 400) return "The music model rejected the request. Try a shorter description.";
   return "The music model could not write a song. Try again.";
@@ -94,10 +105,7 @@ export async function generateSong(
   input: GenerateInput,
   options?: { fetchImpl?: FetchLike; apiKey?: string },
 ): Promise<Song> {
-  const apiKey = options?.apiKey ?? process.env.XAI_API_KEY;
-  if (!apiKey) {
-    throw new GrokError(500, "Song generation is not configured. Add XAI_API_KEY on the server.");
-  }
+  const apiKey = requireApiKey(options?.apiKey);
 
   const fetchImpl = options?.fetchImpl ?? fetch;
   let response: Response;
@@ -127,7 +135,7 @@ export async function generateSong(
           },
         },
       }),
-      signal: AbortSignal.timeout(55_000),
+      signal: AbortSignal.timeout(40_000),
     });
   } catch (error) {
     const timedOut = error instanceof Error && error.name === "TimeoutError";

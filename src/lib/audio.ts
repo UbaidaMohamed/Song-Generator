@@ -1,4 +1,5 @@
 import { arrange, type ScoreEvent } from "./arrange";
+import { mixVocalOverMusic } from "./mix";
 import type { Song } from "./schema";
 import { audioBufferToWav } from "./wav";
 
@@ -14,6 +15,7 @@ type Voices = {
   snareNoise: { triggerAttackRelease: (duration: number, time: number, velocity: number) => void } | null;
   snareBody: { triggerAttackRelease: (note: string, duration: number, time: number, velocity: number) => void } | null;
   hat: { triggerAttackRelease: (duration: number, time: number, velocity: number) => void } | null;
+  bus: InstanceType<ToneModule["Limiter"]>;
   dispose: () => void;
 };
 
@@ -50,7 +52,7 @@ function trigger(voices: Voices, event: ScoreEvent, time: number) {
   }
 }
 
-function createVoices(Tone: ToneModule, song: Song): Voices {
+function createVoices(Tone: ToneModule, song: Song, duckLead = false): Voices {
   const nodes: { dispose: () => void }[] = [];
   const track = <T extends { dispose: () => void }>(node: T) => {
     nodes.push(node);
@@ -96,7 +98,8 @@ function createVoices(Tone: ToneModule, song: Song): Voices {
                     : { attack: 0.02, decay: 0.1, sustain: 0.35, release: 0.28 },
           }),
         );
-  lead.volume.value = song.palette.lead === "saw" || song.palette.lead === "pluck" ? -11 : -6;
+  const duck = duckLead ? 1 : 0;
+  lead.volume.value = (song.palette.lead === "saw" || song.palette.lead === "pluck" ? -11 : -6) - duck * 9;
   lead.connect(leadFilter);
 
   let pad: Voices["pad"] = null;
@@ -112,7 +115,7 @@ function createVoices(Tone: ToneModule, song: Song): Voices {
         },
       }),
     );
-    synth.volume.value = song.palette.pad === "dark" ? -20 : -16;
+    synth.volume.value = (song.palette.pad === "dark" ? -20 : -16) - duck * 3;
     synth.connect(delay);
     pad = synth;
   }
@@ -125,7 +128,7 @@ function createVoices(Tone: ToneModule, song: Song): Voices {
         envelope: { attack: 0.01, decay: 0.12, sustain: 0.7, release: 0.18 },
       }),
     );
-    synth.volume.value = -8;
+    synth.volume.value = -8 - duck * 3;
     synth.connect(limiter);
     bass = synth;
   }
@@ -142,7 +145,7 @@ function createVoices(Tone: ToneModule, song: Song): Voices {
         envelope: { attack: 0.001, decay: 0.28, sustain: 0, release: 0.08 },
       }),
     );
-    kickSynth.volume.value = song.palette.drums === "soft" ? -8 : -3;
+    kickSynth.volume.value = (song.palette.drums === "soft" ? -8 : -3) - duck * 2;
     kickSynth.connect(limiter);
     kick = kickSynth;
 
@@ -188,6 +191,7 @@ function createVoices(Tone: ToneModule, song: Song): Voices {
     snareNoise,
     snareBody,
     hat,
+    bus: limiter,
     dispose() {
       for (const node of nodes) node.dispose();
     },
@@ -199,15 +203,34 @@ export type Performance = {
   play: () => void;
   pause: () => void;
   stop: () => void;
+  /** Wrapped loop position when there is no vocal; absolute time when a vocal is mounted. */
   position: () => number;
 };
 
-export function mountPerformance(Tone: ToneModule, song: Song): Performance {
+export type VocalBuffer = {
+  buffer: AudioBuffer;
+  playbackRate: number;
+};
+
+export function mountPerformance(Tone: ToneModule, song: Song, vocal?: VocalBuffer | null): Performance {
   const { events, loopSeconds } = arrange(song);
   const transport = Tone.getTransport();
   transport.stop();
   transport.cancel(0);
-  const voices = createVoices(Tone, song);
+  const voices = createVoices(Tone, song, Boolean(vocal));
+  const vocalDuration = vocal?.buffer.duration ?? 0;
+  const playbackRate = vocal && vocal.playbackRate > 0 ? vocal.playbackRate : 1;
+  let player: InstanceType<ToneModule["Player"]> | null = null;
+  let space: InstanceType<ToneModule["FeedbackDelay"]> | null = null;
+  if (vocal && vocalDuration > 0) {
+    space = new Tone.FeedbackDelay({ delayTime: 0.1, feedback: 0.25, wet: 0.16 });
+    space.connect(voices.bus);
+    player = new Tone.Player(vocal.buffer);
+    player.playbackRate = playbackRate;
+    player.fadeOut = 0.08;
+    player.volume.value = -1;
+    player.connect(space);
+  }
   transport.bpm.value = song.bpm;
   transport.loop = true;
   transport.loopStart = 0;
@@ -218,36 +241,61 @@ export function mountPerformance(Tone: ToneModule, song: Song): Performance {
     }, event.time);
   }
 
+  function startVocal(when: number) {
+    if (!player || vocalDuration <= 0) return;
+    const sourceOffset = transport.seconds * playbackRate;
+    if (sourceOffset >= vocalDuration - 0.03) return;
+    player.start(when, sourceOffset);
+  }
+
   return {
     loopSeconds,
     play() {
-      transport.start();
+      const when = Tone.now() + 0.05;
+      transport.start(when);
+      startVocal(when);
     },
     pause() {
       transport.pause();
+      player?.stop();
     },
     stop() {
+      player?.stop();
       transport.pause();
       transport.stop();
       transport.cancel(0);
       transport.loop = false;
+      player?.dispose();
+      space?.dispose();
       voices.dispose();
+      player = null;
+      space = null;
     },
     position() {
-      if (loopSeconds <= 0) return 0;
       const seconds = transport.seconds;
+      if (vocalDuration > 0) return Math.max(0, seconds);
+      if (loopSeconds <= 0) return 0;
       return ((seconds % loopSeconds) + loopSeconds) % loopSeconds;
     },
   };
 }
 
-export async function renderSongWav(song: Song): Promise<Blob> {
+export async function decodeAudioBytes(Tone: ToneModule, bytes: Uint8Array): Promise<AudioBuffer> {
+  const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
+  return Tone.getContext().rawContext.decodeAudioData(copy);
+}
+
+export async function renderSongWav(song: Song, vocal?: VocalBuffer | null): Promise<Blob> {
   const Tone = await loadTone();
   const { events, loopSeconds } = arrange(song);
-  const repeats = Math.max(2, Math.min(6, Math.round(28 / Math.max(loopSeconds, 1))));
-  const duration = Math.min(48, loopSeconds * repeats + 1.5);
+  const playbackRate = vocal && vocal.playbackRate > 0 ? vocal.playbackRate : 1;
+  const vocalSpan = vocal && vocal.buffer.duration > 0 ? vocal.buffer.duration / playbackRate + 0.6 : 0;
+  const repeats = vocalSpan
+    ? Math.max(1, Math.ceil(vocalSpan / Math.max(loopSeconds, 0.1)))
+    : Math.max(2, Math.min(6, Math.round(28 / Math.max(loopSeconds, 1))));
+  const duration = vocalSpan ? Math.min(90, vocalSpan) : Math.min(48, loopSeconds * repeats + 1.5);
   const rendered = await Tone.Offline(() => {
-    const voices = createVoices(Tone, song);
+    const voices = createVoices(Tone, song, Boolean(vocalSpan));
     for (let copy = 0; copy < repeats; copy += 1) {
       const offset = copy * loopSeconds;
       for (const event of events) trigger(voices, event, event.time + offset);
@@ -255,5 +303,14 @@ export async function renderSongWav(song: Song): Promise<Blob> {
   }, duration);
   const audio = rendered.get();
   if (!audio) throw new Error("Could not render audio.");
-  return audioBufferToWav(audio);
+  if (!vocal || vocal.buffer.length === 0) return audioBufferToWav(audio);
+
+  const mixed = mixVocalOverMusic({
+    music: Array.from({ length: audio.numberOfChannels }, (_, channel) => audio.getChannelData(channel)),
+    musicRate: audio.sampleRate,
+    vocal: Array.from({ length: vocal.buffer.numberOfChannels }, (_, channel) => vocal.buffer.getChannelData(channel)),
+    vocalRate: vocal.buffer.sampleRate,
+    playbackRate,
+  });
+  return audioBufferToWav(mixed);
 }

@@ -47,6 +47,13 @@ export function audioBufferToWav(buffer: RenderedBuffer): Blob {
   return new Blob([array], { type: "audio/wav" });
 }
 
+export function decodeBase64(value: string): Uint8Array {
+  const binary = atob(value.replace(/\s/g, ""));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
 export function songFilename(title: string): string {
   const slug = title
     .toLowerCase()

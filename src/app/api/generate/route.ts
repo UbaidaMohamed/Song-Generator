@@ -1,6 +1,7 @@
-import { generateSong, GrokError } from "@/lib/grok";
+import { generateSong, GrokError, requireApiKey } from "@/lib/grok";
 import { checkRateLimit, clientIp } from "@/lib/rate-limit";
 import { generateInputSchema } from "@/lib/schema";
+import { synthesizeVocals } from "@/lib/tts";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -44,8 +45,12 @@ export async function POST(request: Request) {
     return jsonError(400, parsed.error.issues[0]?.message ?? "Check the form and try again.");
   }
 
-  if (!process.env.XAI_API_KEY) {
-    return jsonError(500, "Song generation is not configured. Add XAI_API_KEY on the server.");
+  let apiKey: string;
+  try {
+    apiKey = requireApiKey();
+  } catch (error) {
+    if (error instanceof GrokError) return jsonError(error.status, error.message);
+    throw error;
   }
 
   const limit = checkRateLimit(clientIp(request));
@@ -58,8 +63,16 @@ export async function POST(request: Request) {
   }
 
   try {
-    const song = await generateSong(parsed.data);
-    return Response.json({ song }, { headers: { "Cache-Control": "no-store" } });
+    const song = await generateSong(parsed.data, { apiKey });
+    const vocal = await synthesizeVocals(song, parsed.data, { apiKey });
+    if (!vocal.ok) {
+      if (vocal.fatal) return jsonError(vocal.status, vocal.message);
+      return Response.json(
+        { song, vocal: null, vocalError: vocal.message },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+    return Response.json({ song, vocal: vocal.vocal }, { headers: { "Cache-Control": "no-store" } });
   } catch (error) {
     if (error instanceof GrokError) return jsonError(error.status, error.message);
     console.error("Unexpected song generation failure", error);

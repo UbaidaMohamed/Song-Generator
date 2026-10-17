@@ -9,6 +9,7 @@ const input: GenerateInput = {
   energy: "low",
   tempo: 76,
   description: "A kitchen radio at dusk.",
+  voice: "auto",
 };
 
 afterEach(() => {
@@ -45,7 +46,7 @@ describe("generateSong", () => {
     };
     const fetchImpl = vi.fn(async (url: string, init: RequestInit) => {
       expect(url).toBe("https://api.x.ai/v1/responses");
-      expect(init.headers).toMatchObject({ Authorization: "Bearer test-key" });
+      expect(init.headers).toMatchObject({ Authorization: "Bearer xai-test-key" });
       const body = JSON.parse(String(init.body)) as {
         model: string;
         reasoning: { effort: string };
@@ -57,14 +58,14 @@ describe("generateSong", () => {
       expect(body.reasoning.effort).toBe("low");
       expect(body.store).toBe(false);
       expect(body.text.format).toEqual({ type: "json_schema", name: "song", strict: true, schema: expect.any(Object) });
-      expect(JSON.stringify(body)).not.toContain("test-key");
+      expect(JSON.stringify(body)).not.toContain("xai-test-key");
       expect(body.input[1]?.content).toContain("Use exactly 76 BPM");
       return Response.json({
         output: [{ type: "message", content: [{ type: "output_text", text: JSON.stringify(raw) }] }],
       });
     });
 
-    const song = await generateSong(input, { fetchImpl, apiKey: "test-key" });
+    const song = await generateSong(input, { fetchImpl, apiKey: "xai-test-key" });
     expect(song.title).toBe("Last Train Home");
     expect(song.bpm).toBe(76);
     expect(song.lyrics[0]?.lines.length).toBeGreaterThan(0);
@@ -72,11 +73,12 @@ describe("generateSong", () => {
 
   it("fails clearly when the key is missing or the JSON is nonsense", async () => {
     await expect(generateSong(input, { apiKey: "" })).rejects.toThrow(/XAI_API_KEY/);
+    await expect(generateSong(input, { apiKey: "sk-not-xai" })).rejects.toThrow(/xai-/);
 
     const fetchImpl = vi.fn(async () => Response.json({ output_text: "not json" }));
-    await expect(generateSong(input, { fetchImpl, apiKey: "test-key" })).rejects.toThrow(/couldn't read/i);
+    await expect(generateSong(input, { fetchImpl, apiKey: "xai-test-key" })).rejects.toThrow(/couldn't read/i);
 
     const rejected = vi.fn(async () => new Response("nope", { status: 401 }));
-    await expect(generateSong(input, { fetchImpl: rejected, apiKey: "test-key" })).rejects.toThrow(/rejected/i);
+    await expect(generateSong(input, { fetchImpl: rejected, apiKey: "xai-test-key" })).rejects.toThrow(/xai-/);
   });
 });

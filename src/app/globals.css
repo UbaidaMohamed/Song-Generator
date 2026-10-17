@@ -176,7 +176,7 @@ legend {
 .field { display: grid; gap: 8px; margin-bottom: 16px; }
 .field span, .tempo-head span { color: var(--faint); font-size: 0.78rem; letter-spacing: 0.14em; text-transform: uppercase; }
 
-input[type="text"], textarea {
+input[type="text"], textarea, select {
   width: 100%;
   border-radius: 16px;
   border: 1px solid var(--line);
@@ -186,6 +186,15 @@ input[type="text"], textarea {
 }
 
 textarea { min-height: 120px; resize: vertical; line-height: 1.45; }
+
+select {
+  appearance: none;
+  background-image: linear-gradient(45deg, transparent 50%, var(--muted) 50%), linear-gradient(135deg, var(--muted) 50%, transparent 50%);
+  background-position: calc(100% - 18px) 55%, calc(100% - 12px) 55%;
+  background-size: 6px 6px, 6px 6px;
+  background-repeat: no-repeat;
+  padding-right: 36px;
+}
 
 .tempo-head, .counter-row, .actions, .stage-tools, .title-row {
   display: flex;
@@ -358,7 +367,12 @@ input[type="range"] {
   font-weight: 650;
 }
 
-.verse p { margin: 0 0 4px; line-height: 1.45; }
+.verse p { margin: 0 0 4px; line-height: 1.45; border-radius: 10px; padding: 2px 8px; }
+
+.verse p[data-active="true"] {
+  color: #1a120c;
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
 
 .empty {
   min-height: 280px;

@@ -5,6 +5,8 @@ import { Player } from "@/components/player";
 import { ENERGY, EXAMPLES, GENRES, MOODS, type EnergyId } from "@/lib/moods";
 import { sampleSong } from "@/lib/sample-song";
 import type { Song } from "@/lib/schema";
+import type { Vocal } from "@/lib/tts";
+import { VOICES } from "@/lib/voices";
 
 const THEMES: Record<string, { accent: string; accent2: string }> = {
   sad: { accent: "#8fb4e6", accent2: "#d5e4f7" },
@@ -32,6 +34,8 @@ type Result = {
   mood: string;
   genre: string;
   source: "generated" | "sample";
+  vocal: Vocal | null;
+  notice: string;
 };
 
 export function Studio() {
@@ -42,6 +46,7 @@ export function Studio() {
   const [energy, setEnergy] = useState<EnergyId>("low");
   const [autoTempo, setAutoTempo] = useState(true);
   const [tempo, setTempo] = useState(92);
+  const [voice, setVoice] = useState("auto");
   const [description, setDescription] = useState(EXAMPLES[0].description);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
@@ -70,9 +75,15 @@ export function Studio() {
           energy,
           tempo: autoTempo ? null : tempo,
           description: description.trim(),
+          voice,
         }),
       });
-      const payload = (await response.json()) as { song?: Song; error?: string };
+      const payload = (await response.json()) as {
+        song?: Song;
+        vocal?: Vocal | null;
+        vocalError?: string;
+        error?: string;
+      };
       if (!response.ok || !payload.song) {
         setError(payload.error || "The song didn't come through. Try again.");
         return;
@@ -85,6 +96,8 @@ export function Studio() {
         mood: labelFor(mood),
         genre,
         source: "generated",
+        vocal: payload.vocal ?? null,
+        notice: payload.vocalError ?? "",
       });
     } catch {
       setError("Couldn't reach the studio. Check your connection and try again.");
@@ -103,6 +116,8 @@ export function Studio() {
       mood: "Happy",
       genre: "Pop",
       source: "sample",
+      vocal: null,
+      notice: "",
     });
   }
 
@@ -123,7 +138,7 @@ export function Studio() {
             <h1>Song Generator</h1>
           </div>
           <p className="lede">
-            Pick a mood, name a style, and describe the scene. You get original lyrics and a loop you can play.
+            Pick a mood, a voice, and a scene. You get original lyrics, a vocal, and a band you can play.
           </p>
         </div>
         <p className="note">Played in the browser. Nothing is uploaded with the audio.</p>
@@ -246,6 +261,18 @@ export function Studio() {
           </div>
 
           <label className="field">
+            <span>Voice</span>
+            <select aria-label="Voice" value={voice} onChange={(event) => setVoice(event.target.value)}>
+              <option value="auto">Match the mood</option>
+              {VOICES.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label} — {item.note}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="field">
             <span>What should it be about?</span>
             <textarea
               maxLength={400}
@@ -283,7 +310,7 @@ export function Studio() {
 
           <div className="actions">
             <button className="primary" type="submit" disabled={loading}>
-              {loading ? "Writing the song…" : "Generate song"}
+              {loading ? "Writing and singing…" : "Generate song"}
             </button>
             <button className="ghost" type="button" onClick={playSample}>
               Play a sample
@@ -292,18 +319,28 @@ export function Studio() {
         </form>
 
         {result ? (
-          <Player key={result.id} song={result.song} mood={result.mood} genre={result.genre} source={result.source} />
+          <Player
+            key={result.id}
+            song={result.song}
+            mood={result.mood}
+            genre={result.genre}
+            source={result.source}
+            vocal={result.vocal}
+            notice={result.notice}
+          />
         ) : (
           <section className="panel empty">
             <p className="kicker">Listening room</p>
             <h2>Your song will land here.</h2>
             <p className="hint">
-              Generate one from the form, or play the built-in sample to hear how arrangements sound. The sample never calls the API.
+              Generate one from the form, or play the built-in sample to hear the band. The sample never calls the API and has no vocal.
             </p>
           </section>
         )}
       </div>
-      <p className="footer">Original lyrics and a short chord loop. Five songs per half hour from each network, so a public link stays affordable.</p>
+      <p className="footer">
+        Grok writes the song. xAI speaks the vocal, on the same server key. Five songs per half hour from each network.
+      </p>
     </main>
   );
 }

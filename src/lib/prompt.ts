@@ -12,7 +12,7 @@ Write an original short song: title, lyrics, and one looping arrangement.
 Musical rules:
 - Match the mood, style, and energy.
 - Lyrics must be original. Do not quote or closely paraphrase existing songs, poems, or artists.
-- Lines are singable and concrete, at most 10 words each.
+- Lines are singable and concrete, at most 10 words each, with no brackets or stage directions. A voice will perform them aloud.
 - The arrangement is one loop (a verse or chorus hook), not a full multi-minute score.
 - Stay in the stated key. Use diatonic chords plus at most one borrowed chord.
 - Chord symbols look like C, Am, Fmaj7, G7, Dm, or Asus4. Each chord lasts 2, 3, or 4 quarter-note beats.

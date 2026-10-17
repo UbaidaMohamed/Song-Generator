@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { isVoiceChoice } from "./voices";
 
 export const ENERGY_IDS = ["low", "medium", "high"] as const;
 
@@ -25,6 +26,15 @@ export const generateInputSchema = z.object({
     .refine((value) => !/[\u0000-\u001F]/.test(value), "Description contains invalid characters.")
     .optional()
     .default(""),
+  voice: z.preprocess(
+    (value) => (typeof value === "string" ? value.trim().toLowerCase() : value),
+    z
+      .string()
+      .max(32, "Pick a voice from the list.")
+      .optional()
+      .default("auto")
+      .refine(isVoiceChoice, "Pick a voice from the list."),
+  ),
 });
 
 export type GenerateInput = z.infer<typeof generateInputSchema>;
